@@ -418,5 +418,113 @@ class ProceduralMemory:
         
         return None
     
+    def update_from_performance(self, strategy: str, performance_data: Dict, scope: str = "global", scope_id: Optional[str] = None) -> Dict:
+        """Update procedure based on performance feedback"""
+        if scope == "user" and scope_id and scope_id in self.user_procedures:
+            procedures = self.user_procedures[scope_id]
+        elif scope == "community" and scope_id and scope_id in self.community_procedures:
+            procedures = self.community_procedures[scope_id]
+        elif scope == "task" and scope_id and scope_id in self.task_procedures:
+            procedures = self.task_procedures[scope_id]
+        else:
+            procedures = self.global_procedures
+        
+        for pattern, proc in procedures.items():
+            if pattern.lower() in strategy.lower() or strategy.lower() in pattern.lower():
+                success_score = self.domain_agent.calculate_success_score(performance_data)
+                old_rate = proc.success_rate
+                proc.success_rate = min(1.0, proc.success_rate * 0.8 + success_score * 0.2)
+                self.domain_agent.update_domain_metrics(proc, performance_data)
+                
+                proc.adaptations.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "performance": performance_data,
+                    "old_rate": old_rate,
+                    "new_rate": proc.success_rate,
+                    "success_score": success_score
+                })
+                
+                return {
+                    "updated": pattern,
+                    "scope": scope,
+                    "scope_id": scope_id,
+                    "new_success_rate": round(proc.success_rate, 2),
+                    "performance_trend": "improving" if proc.success_rate > old_rate else "declining",
+                    "total_adaptations": len(proc.adaptations)
+                }
+        
+        return {"updated": None}
     
+    def get_stats(self) -> Dict:
+        """Get comprehensive statistics"""
+        total = (
+            len(self.global_procedures) +
+            sum(len(p) for p in self.user_procedures.values()) +
+            sum(len(p) for p in self.community_procedures.values()) +
+            sum(len(p) for p in self.task_procedures.values())
+        )
+        
+        if total == 0:
+            return {
+                "total_strategies": 0,
+                "by_scope": {"global": 0, "user": 0, "community": 0, "task": 0},
+                "avg_success_rate": 0,
+                "total_adaptations": 0,
+                "segments": [],
+                "langmem": {
+                    "algorithm": self.optimization_algorithm,
+                    "total_optimizations": self.total_optimizations,
+                    "pending_conversations": len(self.conversation_buffer)
+                }
+            }
+        all_procs = list(self.global_procedures.values())
+        for procs in self.user_procedures.values():
+            all_procs.extend(procs.values())
+        for procs in self.community_procedures.values():
+            all_procs.extend(procs.values())
+        for procs in self.task_procedures.values():
+            all_procs.extend(procs.values())
+        
+        avg_success = sum(p.success_rate for p in all_procs) / len(all_procs)
+        total_adaptations = sum(len(p.adaptations) for p in all_procs)
+        
+        return {
+            "total_strategies": total,
+            "by_scope": {
+                "global": len(self.global_procedures),
+                "user": sum(len(p) for p in self.user_procedures.values()),
+                "community": sum(len(p) for p in self.community_procedures.values()),
+                "task": sum(len(p) for p in self.task_procedures.values())
+            },
+            "avg_success_rate": round(avg_success, 2),
+            "total_adaptations": total_adaptations,
+            "segments": list(self.segments_discovered),
+            "langmem": {
+                "algorithm": self.optimization_algorithm,
+                "total_optimizations": self.total_optimizations,
+                "pending_conversations": len(self.conversation_buffer)
+            }
+        }
+    
+    def show_strategy_performance(self) -> None:
+        """Display strategy performance visualization"""
+        print("\n📊 Strategy Performance by Scope:")
+        print("=" * 60)
+        
+        print("\n🌍 GLOBAL STRATEGIES:")
+        if self.global_procedures:
+            for name, proc in self.global_procedures.items():
+                bar = "█" * int(proc.success_rate * 10) + "░" * (10 - int(proc.success_rate * 10))
+                print(f"  {name[:30]:<30} {bar} {proc.success_rate:.1%}")
+                if proc.usage_count > 0:
+                    print(f"    Used {proc.usage_count}x | Segments: {', '.join(proc.segments[:2])}")
+        else:
+            print("  No global strategies yet")
+        
+        print("\n👤 USER-SPECIFIC STRATEGIES:")
+        if self.user_procedures:
+            total = sum(len(p) for p in self.user_procedures.values())
+            print(f"  {len(self.user_procedures)} users, {total} procedures")
+        else:
+            print("  No user strategies yet")
                 
