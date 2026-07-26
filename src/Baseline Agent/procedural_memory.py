@@ -527,4 +527,23 @@ class ProceduralMemory:
             print(f"  {len(self.user_procedures)} users, {total} procedures")
         else:
             print("  No user strategies yet")
-                
+        
+        print("\n👥 COMMUNITY STRATEGIES:")
+        if self.community_procedures:
+            for cid, procs in self.community_procedures.items():
+                members = len(self.community_members.get(cid, set()))
+                print(f"  {cid}: {len(procs)} strategies, {members} members")
+        else:
+            print("  No community strategies yet")
+        
+        print("\n📋 TASK-SPECIFIC STRATEGIES:")
+        if self.task_procedures:
+            for task, procs in self.task_procedures.items():
+                print(f"  {task}: {len(procs)} procedures")
+        else:
+            print("  No task strategies yet")
+        
+        print("\n🧠 LANGMEM STATUS:")
+        print(f"  Algorithm: {self.optimization_algorithm}")
+        print(f"  Optimizations completed: {self.total_optimizations}")
+        print(f"  Pending conversations: {len(self.conversation_buffer)}")
