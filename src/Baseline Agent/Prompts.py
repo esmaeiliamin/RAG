@@ -49,3 +49,16 @@ Current conversation:
 
 Respond helpfully using your memories when relevant.
 """
+PROMPTS = {
+    "global": GLOBAL_EXTRACTION_INSTRUCTIONS,
+    "user": USER_EXTRACTION_INSTRUCTIONS,
+    "community": COMMUNITY_EXTRACTION_INSTRUCTIONS,
+    "task": TASK_EXTRACTION_INSTRUCTIONS,
+    "semantic": SEMANTIC_EXTRACTION_PROMPT,
+    "response": RESPONSE_PROMPT
+}
+
+
+def get_prompts() -> dict:
+    """Return all prompts"""
+    return PROMPTS
