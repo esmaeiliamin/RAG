@@ -124,3 +124,80 @@ def identify_user_community(conv):
         community = "moderate_professionals"
     
     return [community], {"age": age, "risk_tolerance": risk}
+
+
+def process_baseline_conversations(full_agent, conversations, num_baseline=30):
+    """Process baseline conversations and return learning summary."""
+    from collections import defaultdict
+    
+    baseline_conversations = conversations[:num_baseline]
+    learning_summary = defaultdict(int)
+    processed = defaultdict(set)
+    facts_extracted = 0
+    extraction_errors = 0
+    
+    for i, conv in enumerate(baseline_conversations):
+        user_id = str(conv['user_id'])
+        messages = [(msg['role'], msg['content']) for msg in conv['messages']]
+        
+        # Store episodic memory
+        full_agent.store_episodic_memory(
+            conversation_id=conv['conversation_id'],
+            messages=messages,
+            summary=f"Investment discussion - satisfaction: {conv['feedback']['satisfaction_score']}/5.0"
+        )
+        
+        # Extract semantic facts
+        try:
+            facts = full_agent.extract_semantic_facts(messages)
+            if facts:
+                facts_extracted += full_agent.store_semantic_facts(facts, user_id=user_id)
+        except Exception:
+            extraction_errors += 1
+        
+        # Learn from successful conversations
+        if conv['feedback']['success'] and conv['feedback']['satisfaction_score'] >= 4.0:
+            communities, user_profile = identify_user_community(conv)
+
+            # Assign user to community
+            for community in communities:
+                if user_id not in full_agent.procedural_memory.user_communities:
+                    full_agent.procedural_memory.user_communities[user_id] = []
+                if community not in full_agent.procedural_memory.user_communities[user_id]:
+                    full_agent.procedural_memory.user_communities[user_id].append(community)
+                    full_agent.procedural_memory.community_members[community].add(user_id)
+                    processed['communities'].add(community)
+
+            # Learn patterns
+            learning_result = full_agent.procedural_memory.learn_from_interaction(
+                query=conv['messages'][0]['content'],
+                interaction_data={
+                    'messages': conv['messages'],
+                    'success': True,
+                    'client_satisfaction': conv['feedback']['satisfaction_score'],
+                    'query_type': conv['metadata'].get('query_type', 'unknown')
+                },
+                user_id=user_id,
+                user_profile=user_profile
+            )
+            # Track learning
+            for key in ['global_learned', 'user_learned', 'community_learned', 'task_learned']:
+                if learning_result.get(key):
+                    scope = key.replace('_learned', '')
+                    learning_summary[scope] += 1
+                    if scope == 'user':
+                        processed['users'].add(user_id)
+                    elif scope == 'task':
+                        task = full_agent.procedural_memory._identify_task_type(conv['messages'][0]['content'])
+                        processed['tasks'].add(task)
+        
+        if (i + 1) % 10 == 0:
+            print(f"  Processed {i + 1}/{len(baseline_conversations)}...")
+    
+    return {
+        'baseline_count': len(baseline_conversations),
+        'facts_extracted': facts_extracted,
+        'extraction_errors': extraction_errors,
+        'learning_summary': dict(learning_summary),
+        'processed': {k: len(v) for k, v in processed.items()}
+    }
