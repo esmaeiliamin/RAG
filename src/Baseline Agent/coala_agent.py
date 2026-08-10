@@ -18,5 +18,15 @@ from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
 
-from domain_agent import DomainAgent, DomainProcedure
+from Domain_agent import DomainAgent, DomainProcedure
 from procedural_memory import ProceduralMemory
+
+class SemanticFact(BaseModel):
+    """Structure for semantic memory facts"""
+    subject: str = Field(description="Entity or topic")
+    predicate: str = Field(description="Relationship or property")
+    object: str = Field(description="Value or related entity")
+    confidence: float = Field(description="Confidence score 0-1")
+    source: str = Field(description="Source: user or assistant")
+
+    
