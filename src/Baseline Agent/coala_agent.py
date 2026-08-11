@@ -29,4 +29,12 @@ class SemanticFact(BaseModel):
     confidence: float = Field(description="Confidence score 0-1")
     source: str = Field(description="Source: user or assistant")
 
-    
+class AgentState(TypedDict):
+    """State structure for the agent workflow"""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    working_memory: dict
+    episodic_recall: list
+    semantic_facts: dict
+    procedural_strategy: dict
+    user_id: str
+    conversation_id: str
