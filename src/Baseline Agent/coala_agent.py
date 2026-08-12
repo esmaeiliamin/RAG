@@ -85,3 +85,23 @@ class CoALAAgent:
         workflow.set_entry_point("memory_agent")
         workflow.add_edge("memory_agent", END)
         return workflow
+    
+    def store_episodic_memory(self, conversation_id: str, messages: List, summary: Optional[str] = None) -> str:
+        if not summary and messages:
+            first_msg = messages[0]
+            if isinstance(first_msg, tuple):
+                summary = f"Discussion: {first_msg[1][:100]}..."
+            else:
+                summary = f"Discussion: {first_msg.content[:100]}..."
+        
+        metadata = {
+            "type": "episodic",
+            "conversation_id": conversation_id,
+            "timestamp": datetime.now().isoformat(),
+            "message_count": len(messages),
+            "user_id": self.current_user_id
+        }
+        
+        conversation_text = self._format_messages(messages)
+        self.vector_store.add_documents([Document(page_content=conversation_text, metadata=metadata)])
+        return conversation_id
