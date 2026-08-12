@@ -105,3 +105,38 @@ class CoALAAgent:
         conversation_text = self._format_messages(messages)
         self.vector_store.add_documents([Document(page_content=conversation_text, metadata=metadata)])
         return conversation_id
+    
+    def retrieve_episodic_memories(self, query: str, k: int = 3) -> List[Document]:
+        return self.vector_store.similarity_search(query=query, k=k, filter={"type": {"$eq": "episodic"}})
+    
+    def extract_semantic_facts(self, messages: List) -> List[SemanticFact]:
+        extraction_prompt_template = self.domain_agent.get_semantic_extraction_prompt()
+        extraction_prompt = PromptTemplate.from_template(extraction_prompt_template)
+        
+        conversation_text = self._format_messages(messages)
+        
+        try:
+            chain = extraction_prompt | self.llm | JsonOutputParser()
+            result = chain.invoke({"conversation": conversation_text})
+            
+            facts = []
+            for fact_dict in result.get("facts", []):
+                if "source" in fact_dict:
+                    if isinstance(fact_dict["source"], bool):
+                        fact_dict["source"] = "assistant" if fact_dict["source"] else "user"
+                    elif fact_dict["source"] not in ["user", "assistant"]:
+                        fact_dict["source"] = "assistant"
+                
+                for field in ["subject", "predicate", "object"]:
+                    if field in fact_dict and not isinstance(fact_dict[field], str):
+                        fact_dict[field] = str(fact_dict[field])
+                
+                try:
+                    facts.append(SemanticFact(**fact_dict))
+                except Exception:
+                    continue
+                    
+            return facts
+        except Exception as e:
+            print(f"Fact extraction error: {e}")
+            return []
