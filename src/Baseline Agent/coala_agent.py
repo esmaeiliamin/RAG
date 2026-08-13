@@ -140,3 +140,26 @@ class CoALAAgent:
         except Exception as e:
             print(f"Fact extraction error: {e}")
             return []
+    
+    def store_semantic_facts(self, facts: List[SemanticFact], user_id: Optional[str] = None) -> int:
+        if user_id is None:
+            user_id = self.current_user_id
+            
+        documents = []
+        for fact in facts:
+            documents.append(Document(
+                page_content=f"{fact.subject} {fact.predicate} {fact.object}",
+                metadata={
+                    "type": "semantic",
+                    "user_id": user_id,
+                    "subject": fact.subject,
+                    "predicate": fact.predicate,
+                    "object": fact.object,
+                    "confidence": fact.confidence,
+                    "timestamp": datetime.now().isoformat()
+                }
+            ))
+        
+        if documents:
+            self.vector_store.add_documents(documents)
+        return len(documents)
