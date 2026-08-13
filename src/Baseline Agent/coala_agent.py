@@ -163,3 +163,33 @@ class CoALAAgent:
         if documents:
             self.vector_store.add_documents(documents)
         return len(documents)
+    
+    def retrieve_semantic_facts(self, query: str, user_id: Optional[str] = None, k: int = 5) -> List[Dict]:
+        if user_id is None:
+            user_id = self.current_user_id
+            
+        results = self.vector_store.similarity_search(
+            query=query,
+            k=k,
+            filter={"$and": [{"type": {"$eq": "semantic"}}, {"user_id": {"$eq": user_id}}]}
+        )
+        
+        return [{
+            "subject": doc.metadata.get("subject"),
+            "predicate": doc.metadata.get("predicate"),
+            "object": doc.metadata.get("object"),
+            "confidence": doc.metadata.get("confidence", 1.0)
+        } for doc in results]
+    
+    def _format_messages(self, messages: List) -> str:
+        conversation_text = ""
+        for msg in messages:
+            if isinstance(msg, tuple):
+                conversation_text += f"{msg[0]}: {msg[1]}\n"
+            elif isinstance(msg, BaseMessage):
+                conversation_text += f"{msg.type}: {msg.content}\n"
+            else:
+                conversation_text += str(msg) + "\n"
+        return conversation_text
+    
+    
