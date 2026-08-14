@@ -18,8 +18,9 @@ from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
 
-from Domain_agent import DomainAgent, DomainProcedure
+from domain_agent import DomainAgent, DomainProcedure
 from procedural_memory import ProceduralMemory
+
 
 class SemanticFact(BaseModel):
     """Structure for semantic memory facts"""
@@ -28,6 +29,7 @@ class SemanticFact(BaseModel):
     object: str = Field(description="Value or related entity")
     confidence: float = Field(description="Confidence score 0-1")
     source: str = Field(description="Source: user or assistant")
+
 
 class AgentState(TypedDict):
     """State structure for the agent workflow"""
@@ -67,6 +69,7 @@ class CoALAAgent:
             embedding_function=self.embeddings,
             persist_directory=persist_directory
         )
+        
         self.procedural_memory = ProceduralMemory(
             llm=self.llm,
             domain_agent=domain_agent,
@@ -78,7 +81,7 @@ class CoALAAgent:
         
         self.current_user_id = "default"
         self.current_conversation_id = None
-
+    
     def _build_workflow(self) -> StateGraph:
         workflow = StateGraph(AgentState)
         workflow.add_node("memory_agent", self._unified_memory_agent)
@@ -202,3 +205,123 @@ class CoALAAgent:
                 context += f"- {fact['subject']} {fact['predicate']} {fact['object']}\n"
         return context
     
+    def _unified_memory_agent(self, state: AgentState) -> dict:
+        current_messages = state.get("messages", [])
+        user_id = state.get("user_id", self.current_user_id)
+        conversation_id = state.get("conversation_id", f"conv_{datetime.now().timestamp()}")
+        
+        episodic_context = ""
+        semantic_context = ""
+        procedural_context = ""
+        latest_query = ""
+        profile = {}
+        strategy = None
+        past_episodes = []
+        
+        if current_messages:
+            latest_msg = current_messages[-1]
+            if isinstance(latest_msg, tuple):
+                latest_query = latest_msg[1]
+            elif isinstance(latest_msg, BaseMessage):
+                latest_query = latest_msg.content
+            else:
+                latest_query = str(latest_msg)
+            
+            past_episodes = self.retrieve_episodic_memories(latest_query, k=2)
+            if past_episodes:
+                episodic_context = "Relevant past discussions:\n"
+                for episode in past_episodes:
+                    timestamp = episode.metadata.get('timestamp', 'Unknown')
+                    episodic_context += f"[{timestamp}]:\n{episode.page_content[:200]}...\n\n"
+            
+            facts = self.retrieve_semantic_facts(latest_query, user_id=user_id, k=5)
+            semantic_context = self._format_semantic_context(facts)
+            
+            profile = self.domain_agent.extract_profile(facts, latest_query)
+            strategy = self.procedural_memory.get_investment_strategy(latest_query, profile, user_id=user_id)
+            
+            if strategy:
+                procedural_context = self.domain_agent.format_procedural_context(strategy)
+        
+        response_prompt_template = self.domain_agent.get_response_prompt_template()
+        response_prompt = PromptTemplate.from_template(response_prompt_template)
+        
+        formatted_messages = self._format_messages(current_messages[-5:] if current_messages else [])
+        
+        chain = response_prompt | self.llm | self.output_parser
+        response = chain.invoke({
+            "semantic_context": semantic_context,
+            "episodic_context": episodic_context,
+            "procedural_context": procedural_context,
+            "messages": formatted_messages
+        })
+        
+        if len(current_messages) >= 2:
+            self.store_episodic_memory(conversation_id, current_messages)
+        
+        messages_with_response = []
+        if current_messages:
+            messages_with_response = current_messages + [("assistant", response)]
+            new_facts = self.extract_semantic_facts(messages_with_response[-3:])
+            if new_facts:
+                stored = self.store_semantic_facts(new_facts, user_id)
+                state["semantic_facts"] = {"extracted": stored}
+        
+        if current_messages and latest_query:
+            interaction_data = {
+                "messages": [str(m) for m in messages_with_response[-3:]],
+                "success": True,
+                "client_satisfaction": 8,
+                "profile": profile
+            }
+            self.procedural_memory.learn_from_interaction(latest_query, interaction_data, user_id=user_id, user_profile=profile)
+        
+        return {
+            "messages": [AIMessage(content=response)],
+            "episodic_recall": past_episodes if past_episodes else [],
+            "semantic_facts": state.get("semantic_facts", {}),
+            "procedural_strategy": strategy if strategy else {}
+        }
+    
+    def process_message(self, message: str, user_id: Optional[str] = None, conversation_id: Optional[str] = None) -> str:
+        if user_id:
+            self.current_user_id = user_id
+        if conversation_id:
+            self.current_conversation_id = conversation_id
+        else:
+            self.current_conversation_id = f"conv_{datetime.now().timestamp()}"
+        
+        state = {
+            "messages": [HumanMessage(content=message)],
+            "user_id": self.current_user_id,
+            "conversation_id": self.current_conversation_id,
+            "working_memory": {},
+            "episodic_recall": [],
+            "semantic_facts": {},
+            "procedural_strategy": {}
+        }
+        
+        result = self.app.invoke(state)
+        
+        if result and "messages" in result and result["messages"]:
+            return result["messages"][-1].content
+        return "I apologize, but I couldn't process that message."
+    
+    def get_memory_stats(self) -> Dict:
+        procedural_stats = self.procedural_memory.get_stats()
+        
+        return {
+            "episodic_semantic": {
+                "total_documents": len(self.vector_store.get()["ids"]) if hasattr(self.vector_store, 'get') else "N/A",
+                "current_user": self.current_user_id,
+                "current_conversation": self.current_conversation_id
+            },
+            "procedural": procedural_stats
+        }
+    
+    def get_all_memory_stats(self) -> Dict:
+        base_stats = self.get_memory_stats()
+        langmem_stats = self.procedural_memory.get_stats().get("langmem", {})
+        base_stats["procedural"]["algorithm"] = langmem_stats.get("algorithm", "prompt_memory")
+        base_stats["procedural"]["total_optimizations"] = langmem_stats.get("total_optimizations", 0)
+        return base_stats
