@@ -192,4 +192,13 @@ class CoALAAgent:
                 conversation_text += str(msg) + "\n"
         return conversation_text
     
+    def _format_semantic_context(self, facts: List[Dict]) -> str:
+        if not facts:
+            return "No relevant facts found."
+        
+        context = "Known information:\n"
+        for fact in facts:
+            if fact.get('confidence', 1.0) > 0.7:
+                context += f"- {fact['subject']} {fact['predicate']} {fact['object']}\n"
+        return context
     
